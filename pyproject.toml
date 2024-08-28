@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "fastapi-jwt-auth"
+version = "0.1.0"
+description = ""
+authors = ["nikrenxd <nikrenb1101@gmail.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = {extras = ["standard"], version = "^0.112.2"}
+pyjwt = "^2.9.0"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+pydantic-settings = "^2.4.0"
+sqlalchemy = "^2.0.32"
+alembic = "^1.13.2"
+asyncpg = "^0.29.0"
+ruff = "^0.6.2"
+greenlet = "^3.0.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
