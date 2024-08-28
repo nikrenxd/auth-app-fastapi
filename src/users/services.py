@@ -7,6 +7,8 @@ from src.settings import settings
 from src.users.dao import UserDAO, RefreshTokenDAO
 from src.users.security import create_token, verify_password
 
+# TODO Refactor UserService and RefreshTokenService(SecurityService)
+
 
 class UserService:
     @classmethod
@@ -58,7 +60,6 @@ class RefreshTokenService:
     @classmethod
     async def refresh(cls, token: str):
         refresh_token = await RefreshTokenDAO.get_one(refresh_token=token)
-        print("REFRESH ####", refresh_token)
 
         if not refresh_token:
             raise HTTPException(

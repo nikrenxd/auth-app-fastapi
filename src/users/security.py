@@ -15,6 +15,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+# TODO: Refactor token creation
 def create_token(data: dict, token_secret: str, expire_time: int) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=expire_time)
