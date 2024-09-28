@@ -1,107 +1,82 @@
-import jwt
 from fastapi import HTTPException, status
-from datetime import datetime, timedelta
+from datetime import datetime
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.settings import settings
-from src.users.utils import _tokens_expiration, _token_expire_in
-from src.users.dao import RefreshTokenDAO, UserDAO
+from src.users.utils import (
+    _tokens_expiration,
+    _token_expire_in,
+    TokensCreation,
+    verify_password,
+)
+from src.users.services import RefreshTokenService, UserService
 
 
-class AuthenticationService:
-    @classmethod
-    def _create_token(
-        cls, data: dict, token_secret: str, expire_time: timedelta
-    ) -> str:
-        to_encode = data.copy()
-        expire = _token_expire_in(expire_time)
-        to_encode.update({"exp": expire})
-
-        token = jwt.encode(
-            to_encode,
-            token_secret,
-            algorithm=settings.JWT_ALGORITHM,
-        )
-
-        return token
+class Authentication:
+    token_utils = TokensCreation
 
     @classmethod
-    async def create_refresh_token(
-        cls,
-        data: dict,
-        token_secret: str,
-        token_expires: timedelta,
-        refresh: bool = False,
-    ) -> str:
-        expire = _token_expire_in(token_expires)
-        token = cls._create_token(data, token_secret, token_expires)
-        user_id = data.get("sub")
-
-        if not refresh:
-            await RefreshTokenDAO.add(
-                refresh_token=token,
-                user_id=user_id,
-                expires_in=expire,
-            )
-
-        return token
-
-    @classmethod
-    async def get_tokens(
-        cls,
-        data: dict,
-        access_expiration: timedelta,
-        refresh_expiration: timedelta,
-        refresh: bool = False,
-    ):
-        access_token = cls._create_token(
-            data,
-            settings.JWT_ACCESS_SECRET,
-            access_expiration,
-        )
-        refresh_token = await cls.create_refresh_token(
-            data,
-            settings.JWT_REFRESH_SECRET,
-            refresh_expiration,
-            refresh,
-        )
-
-        return {"access": access_token, "refresh": refresh_token}
-
-    @classmethod
-    async def login(cls, data: dict) -> dict[str, str]:
+    async def login(cls, session: AsyncSession, data: dict) -> dict[str, str]:
         access_token_expires, refresh_token_expires = _tokens_expiration(
             settings.JWT_ACCESS_EXPIRE,
             settings.JWT_REFRESH_EXPIRE,
         )
-        tokens = await cls.get_tokens(data, access_token_expires, refresh_token_expires)
+        tokens = await cls.token_utils.get_tokens(
+            data, access_token_expires, refresh_token_expires
+        )
+
+        user_id = data.get("sub")
+        refresh_token = tokens.get("refresh")
+        token_expires = _token_expire_in(refresh_token_expires)
+
+        await RefreshTokenService.add_refresh(
+            session,
+            token_expires,
+            refresh_token,
+            user_id,
+        )
 
         return tokens
 
     @classmethod
-    async def logout(cls, refresh_token: str):
-        token = await RefreshTokenDAO.get_one(refresh_token=refresh_token)
+    async def logout(cls, session: AsyncSession, refresh_token: str):
+        token = await RefreshTokenService.get_one(session, refresh_token=refresh_token)
         if token:
-            await RefreshTokenDAO.delete(refresh_token=refresh_token)
+            await RefreshTokenService.delete(session, refresh_token=refresh_token)
 
     @classmethod
-    async def refresh_tokens(cls, token: str):
+    async def authenticate_user(
+        cls,
+        session: AsyncSession,
+        user_email: str,
+        user_password: str,
+    ):
+        user = await UserService.get_one(session, email=user_email)
+        if not user and verify_password(user_password, user.password):
+            return False
+
+        return user
+
+    @classmethod
+    async def refresh(cls, session: AsyncSession, token: str):
         access_token_expires, refresh_token_expires = _tokens_expiration(
             settings.JWT_ACCESS_EXPIRE,
             settings.JWT_REFRESH_EXPIRE,
         )
-        refresh_token = await RefreshTokenDAO.get_one(refresh_token=token)
+        refresh_token = await RefreshTokenService.get_one(session, refresh_token=token)
 
         if not refresh_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
             )
         if refresh_token.expires_in.timestamp() <= datetime.utcnow().timestamp():
-            await RefreshTokenDAO.delete(id=refresh_token.id)
+            await RefreshTokenService.delete(session, id=refresh_token.id)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
             )
 
-        user = await UserDAO.get_one(id=refresh_token.user_id)
+        user = await UserService.get_one(session, id=refresh_token.user_id)
         data = {"sub": user.id}
 
         if not user:
@@ -110,14 +85,14 @@ class AuthenticationService:
                 detail="Invalid token",
             )
 
-        tokens = await cls.get_tokens(
+        tokens = await cls.token_utils.get_tokens(
             data,
             access_token_expires,
             refresh_token_expires,
-            True,
         )
 
-        new_refresh_token = await RefreshTokenDAO.update(
+        new_refresh_token = await RefreshTokenService.update(
+            session,
             {
                 "refresh_token": tokens.pop("refresh"),
                 "expires_in": _token_expire_in(refresh_token_expires),

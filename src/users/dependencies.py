@@ -7,7 +7,7 @@ from fastapi import Request, HTTPException, status, Depends
 from jwt import PyJWTError
 
 from src.settings import settings
-from src.users.dao import UserDAO
+from src.users.services import UserService
 
 
 def get_token(request: Request) -> str:
@@ -46,7 +46,7 @@ async def get_current_user(token: Annotated[get_token, Depends()]):
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
-    user = await UserDAO.get_one(id=user_id)
+    user = await UserService.get_one(id=user_id)
     if not user:
         raise HTTPException(
             detail="Invalid token",
